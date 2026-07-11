@@ -1,0 +1,15 @@
+{
+  "name": "clx-grok-call",
+  "description": "Cluxion agent plugins marketplace",
+  "owner": {
+    "name": "cluxion"
+  },
+  "plugins": [
+    {
+      "name": "clx-grok-call",
+      "description": "One bounded Grok CLI call with structured errors and deterministic process cleanup.",
+      "version": "0.1.0",
+      "source": "./"
+    }
+  ]
+}
