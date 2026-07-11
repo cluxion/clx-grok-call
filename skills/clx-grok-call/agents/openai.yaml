@@ -1,0 +1,4 @@
+interface:
+  display_name: "CLX Grok Call"
+  short_description: "One bounded Grok call via clx-grok-call"
+  default_prompt: "Use clx-grok-call once for a bounded Grok request and return the result."

@@ -1,0 +1,9 @@
+{
+  "name": "clx-grok-call",
+  "version": "0.1.0",
+  "description": "One bounded Grok CLI call via the installed grok executable.",
+  "author": {
+    "name": "cluxion"
+  },
+  "skills": "./skills"
+}

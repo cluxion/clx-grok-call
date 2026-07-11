@@ -1,0 +1,18 @@
+{
+  "name": "clx-grok-call",
+  "version": "0.1.0",
+  "description": "One bounded Grok CLI call via the installed grok executable.",
+  "author": {
+    "name": "cluxion"
+  },
+  "skills": "./skills",
+  "interface": {
+    "displayName": "CLX Grok Call",
+    "shortDescription": "One bounded Grok 4.5 call.",
+    "longDescription": "Call the installed Grok CLI once with bounded lifecycle and structured errors.",
+    "developerName": "cluxion",
+    "category": "Productivity",
+    "capabilities": [],
+    "defaultPrompt": "Use clx-grok-call once and return the result."
+  }
+}
