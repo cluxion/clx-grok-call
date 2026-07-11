@@ -1,6 +1,6 @@
 # clx-grok-call Design
 
-- Version: 0.1.0
+- Version: 0.1.1
 - Date: 2026-07-11
 - Purpose: expose the installed Grok CLI as one bounded call for Codex, Claude Code, and terminals.
 - Scale: Small (~9 packaging/docs files + one runtime module), no C0 split.

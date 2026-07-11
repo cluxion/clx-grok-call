@@ -32,6 +32,20 @@ JSON_KEYS = frozenset(
 )
 
 
+def test_skill_metadata_hard_excludes_recursive_execution() -> None:
+    skill = (ROOT / "skills" / "clx-grok-call" / "SKILL.md").read_text(encoding="utf-8")
+    description = next(
+        line.removeprefix("description: ")
+        for line in skill.splitlines()
+        if line.startswith("description: ")
+    )
+    assert description.startswith("Exclusion overrides an explicit Grok mention")
+    assert "recursive agent/tool call" in description
+    assert "do not select or call this skill" in description
+    assert "Execute exactly one clx-grok-call" in description
+    assert len(description) <= 1024
+
+
 # --- helpers -----------------------------------------------------------------
 
 def _fake_grok_source() -> str:
@@ -283,7 +297,7 @@ def test_version_uses_package_metadata_without_starting_grok(
 ) -> None:
     proc = run_cli(["--version"])
     assert proc.returncode == 0
-    assert proc.stdout == "clx-grok-call 0.1.0\n"
+    assert proc.stdout == "clx-grok-call 0.1.1\n"
     assert proc.stderr == ""
     assert invocations(tmp_path) == []
 

@@ -1,6 +1,6 @@
 ---
 name: clx-grok-call
-description: Use when the user explicitly asks to call Grok/Grok 4.5, delegate repetitive/high-token analysis, or get a one-shot second opinion. Execute one clx-grok-call and return the result. Do not use for recursive agent loops or silently editing files.
+description: Exclusion overrides an explicit Grok mention. If the requested execution is an infinite loop, self-chain, recursive agent/tool call, or Grok-calling-Grok, do not select or call this skill; refuse that form directly. Otherwise, use when the user explicitly asks to call Grok/Grok 4.5, delegate repetitive/high-token analysis, or get a one-shot second opinion. Execute exactly one clx-grok-call and return the result. Do not silently edit files.
 ---
 
 # clx-grok-call
