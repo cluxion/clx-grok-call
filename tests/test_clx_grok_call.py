@@ -324,6 +324,17 @@ def test_stdin_only_prompt(tmp_path: Path, fake_grok: Path) -> None:
     assert flag_values(argv, "-m", "--model") == ["grok-4.5"]
 
 
+def test_call_leaves_isolated_home_empty(tmp_path: Path, fake_grok: Path) -> None:
+    """The wrapper must not create session, cache, or memory state in HOME."""
+    home = Path(os.environ["HOME"])
+    assert list(home.iterdir()) == []
+
+    proc = run_cli(["no persistent state"])
+
+    assert proc.returncode == 0, proc.stderr
+    assert list(home.iterdir()) == []
+
+
 def test_missing_grok_exit_127(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
