@@ -11,6 +11,7 @@ import signal
 import subprocess
 import sys
 import time
+from importlib.metadata import PackageNotFoundError, version
 from typing import Any, Mapping
 
 DEFAULT_MODEL = "grok-4.5"
@@ -21,6 +22,13 @@ EXIT_TIMEOUT, EXIT_INTERRUPT, EXIT_PIPE, EXIT_SIGTERM = 124, 130, 141, 143
 GRACE = 0.5
 COMMANDS = frozenset({"models", "doctor"})
 _active_pgid: int | None = None
+
+
+def package_version() -> str:
+    try:
+        return version("clx-grok-call")
+    except PackageNotFoundError:
+        return "0+unknown"
 
 
 def _timeout_type(value: str) -> int:
@@ -43,6 +51,10 @@ def build_parser() -> argparse.ArgumentParser:
         description="설치된 Grok CLI를 단일 상태 없는 호출로 실행합니다.",
         epilog="프롬프트는 위치 인자 또는 표준입력. 위치 인자가 있으면 표준입력을 읽지 않습니다.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p.add_argument(
+        "-V", "--version", action="version",
+        version=f"%(prog)s {package_version()}",
     )
     p.add_argument("-m", "--model", default=DEFAULT_MODEL, help=f"모델 (기본: {DEFAULT_MODEL})")
     p.add_argument(

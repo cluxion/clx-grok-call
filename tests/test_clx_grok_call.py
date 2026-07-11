@@ -278,6 +278,16 @@ def test_help_is_korean(fake_grok: Path) -> None:
     assert HANGUL.search(text), f"expected Korean help text, got:\n{text}"
 
 
+def test_version_uses_package_metadata_without_starting_grok(
+    tmp_path: Path, fake_grok: Path
+) -> None:
+    proc = run_cli(["--version"])
+    assert proc.returncode == 0
+    assert proc.stdout == "clx-grok-call 0.1.0\n"
+    assert proc.stderr == ""
+    assert invocations(tmp_path) == []
+
+
 def test_positional_prompt_spawns_one_grok_with_default_model(
     tmp_path: Path, fake_grok: Path
 ) -> None:
