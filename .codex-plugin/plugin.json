@@ -1,6 +1,6 @@
 {
   "name": "clx-grok-call",
-  "version": "0.1.1+codex.20260711175618",
+  "version": "0.1.2+codex.20260711180435",
   "description": "One bounded Grok CLI call via the installed grok executable.",
   "author": {
     "name": "cluxion"

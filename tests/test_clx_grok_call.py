@@ -39,10 +39,10 @@ def test_skill_metadata_hard_excludes_recursive_execution() -> None:
         for line in skill.splitlines()
         if line.startswith("description: ")
     )
-    assert description.startswith("Exclusion overrides an explicit Grok mention")
-    assert "recursive agent/tool call" in description
-    assert "do not select or call this skill" in description
-    assert "Execute exactly one clx-grok-call" in description
+    assert description.startswith("NEVER SELECT OR LOAD THIS SKILL")
+    assert "without loading this skill or calling Grok" in description
+    assert "even if Grok or clx-grok-call is explicitly named" in description
+    assert "exactly one bounded Grok call" in description
     assert len(description) <= 1024
 
 
@@ -297,7 +297,7 @@ def test_version_uses_package_metadata_without_starting_grok(
 ) -> None:
     proc = run_cli(["--version"])
     assert proc.returncode == 0
-    assert proc.stdout == "clx-grok-call 0.1.1\n"
+    assert proc.stdout == "clx-grok-call 0.1.2\n"
     assert proc.stderr == ""
     assert invocations(tmp_path) == []
 
