@@ -315,6 +315,9 @@ def test_positional_prompt_spawns_one_grok_with_default_model(
     models = flag_values(argv, "-m", "--model")
     assert models == ["grok-4.5"], argv
     assert flag_values(argv, "--tools") == [""], argv
+    assert argv.count("--no-memory") == 1, argv
+    assert argv.count("--no-subagents") == 1, argv
+    assert argv.count("--no-auto-update") == 1, argv
     assert "FAKE_GROK_OK" in proc.stdout
 
 
