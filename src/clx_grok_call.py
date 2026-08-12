@@ -10,6 +10,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 from importlib.metadata import PackageNotFoundError, version
 from typing import Any, Mapping
@@ -364,17 +365,53 @@ def cmd_call(
     path = find_delegate()
     if path is None:
         return _not_found("call", model, as_json)
+    temporary_repo = None
+    try:
+        probe = subprocess.run(
+            ["git", "-C", os.getcwd(), "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if probe.returncode == 0:
+            repo = probe.stdout.strip()
+        else:
+            temporary_repo = tempfile.TemporaryDirectory(prefix="clx-grok-call-")
+            initialized = subprocess.run(
+                ["git", "init", "-q", temporary_repo.name],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if initialized.returncode:
+                message = initialized.stderr.strip() or "임시 Git 저장소를 만들 수 없습니다"
+                return _finish(
+                    command="call", model=model, code=EXIT_SPAWN, out="", err=message,
+                    timed_out=False, duration_ms=0, as_json=as_json,
+                    timeout_msg="호출이 시간 초과되었습니다",
+                )
+            repo = temporary_repo.name
+    except OSError as exc:
+        return _finish(
+            command="call", model=model, code=EXIT_SPAWN, out="", err=str(exc),
+            timed_out=False, duration_ms=0, as_json=as_json,
+            timeout_msg="호출이 시간 초과되었습니다",
+        )
     argv = [
-        path, os.getcwd(), "-p", prompt, "-m", model,
+        path, repo, "-p", prompt, "-m", model,
         "--output-format", "plain", "--always-approve", "--check",
         "--disable-web-search", "--no-memory", "--no-subagents", "--max-turns", "1",
     ]
-    code, out, err, timed_out, ms = run_grok(argv, timeout=float(timeout), env=env)
-    return _finish(
-        command="call", model=model, code=code, out=out, err=err,
-        timed_out=timed_out, duration_ms=ms, as_json=as_json,
-        timeout_msg="호출이 시간 초과되었습니다",
-    )
+    try:
+        code, out, err, timed_out, ms = run_grok(argv, timeout=float(timeout), env=env)
+        return _finish(
+            command="call", model=model, code=code, out=out, err=err,
+            timed_out=timed_out, duration_ms=ms, as_json=as_json,
+            timeout_msg="호출이 시간 초과되었습니다",
+        )
+    finally:
+        if temporary_repo is not None:
+            temporary_repo.cleanup()
 
 
 def main(argv: list[str] | None = None) -> int:

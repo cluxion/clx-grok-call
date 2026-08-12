@@ -73,7 +73,7 @@ Commands (no `status`):
 
 | Command | Behavior |
 |---|---|
-| `call` (default) | One `grok -p … -m …` with isolation flags |
+| `call` (default) | One `clx-grok-delegate` call with isolation flags; a cleaned empty repository when cwd is not in Git |
 | `models` | Pass-through `grok models` |
 | `doctor` | Bounded probe `grok --version --no-auto-update` (no prompt) |
 
@@ -116,7 +116,7 @@ Internal logic:
 1. Parse argv; subcommands are only `models` and `doctor` (not `status`).
 2. Validate timeout in `1..600` seconds (default 120).
 3. Resolve prompt: positional tokens join as prompt and **never** read stdin; stdin-only when no positional tokens and not a TTY; empty → usage 2.
-4. Spawn exactly one `grok` in a new process group (`start_new_session=True`).
+4. Resolve the current Git root; otherwise initialize one empty temporary repository, then spawn exactly one delegate in a new process group (`start_new_session=True`).
 5. Bounded `communicate`; on timeout SIGTERM group → grace → SIGKILL; no retry.
 6. Render plain text or a single JSON envelope; return truthful exit code.
 
@@ -124,7 +124,7 @@ Internal logic:
 
 **Wrapper-only:**
 
-- Does not write prompt/response/trace/temp/config/cache/session files of its own.
+- Does not write prompt/response/trace/config/cache/session files of its own. A non-Git call owns and removes one empty temporary repository.
 - No Hermes, MCP, picker injection, daemon, database, nested agent, recursive call, or cross-asset import.
 - Isolation flags force tools-off / memory-off / subagents-off / no-auto-update on the child argv.
 

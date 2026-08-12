@@ -1,8 +1,8 @@
 # clx-grok-call
 
-One bounded call to the installed [Grok](https://x.ai) CLI through `clx-grok-delegate`. Runtime is **Python 3.10+ stdlib only**. The wrapper spawns exactly one child, applies a hard timeout, never retries, and returns a truthful process exit code.
+One bounded call to the installed [Grok](https://x.ai) CLI through `clx-grok-delegate`. Runtime is **Python 3.10+ stdlib only**. The wrapper runs one delegate, applies a hard timeout, never retries, and returns a truthful process exit code. Outside a Git working tree it creates and removes one empty temporary repository for the delegate sandbox.
 
-**State caveat:** this wrapper does **not** write its own prompt/response/trace/cache/session files. It is **not** a claim that upstream Grok is fully stateless — Grok account auth, provider session, or other host-side Grok state may still apply outside this package.
+**State caveat:** this wrapper does **not** write its own prompt/response/trace/cache/session files. Its non-Git fallback uses a cleaned temporary repository. It is **not** a claim that upstream Grok is fully stateless — Grok account auth, provider session, or other host-side Grok state may still apply outside this package.
 
 ## Install
 

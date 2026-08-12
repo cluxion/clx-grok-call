@@ -325,6 +325,23 @@ def test_positional_prompt_spawns_one_grok_with_default_model(
     assert "FAKE_GROK_OK" in proc.stdout
 
 
+def test_call_from_non_git_directory_uses_a_cleaned_ephemeral_repo(
+    tmp_path: Path, fake_grok: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    monkeypatch.chdir(outside)
+
+    proc = run_cli(["works outside git"])
+
+    assert proc.returncode == 0, proc.stderr
+    rows = invocations(tmp_path)
+    assert len(rows) == 1
+    repo = Path(rows[0]["argv"][1])
+    assert repo != outside
+    assert not repo.exists()
+
+
 def test_model_override(tmp_path: Path, fake_grok: Path) -> None:
     proc = run_cli(["--model", "custom-model", "override me"])
     assert proc.returncode == 0, proc.stderr
