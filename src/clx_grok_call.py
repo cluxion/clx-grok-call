@@ -132,6 +132,30 @@ def find_grok() -> str | None:
     return path
 
 
+def find_delegate() -> str | None:
+    path = shutil.which("clx-grok-delegate")
+    if path is None or not os.path.isfile(path) or not os.access(path, os.X_OK):
+        return None
+    return path
+
+
+def classify_failure(message: str) -> str:
+    text = message.casefold()
+    if any(phrase in text for phrase in ("one cross-executor hop", "nested executor", "same executor")):
+        return "chain_error"
+    if "model registry" in text:
+        return "model_registry_error"
+    if "session" in text and any(phrase in text for phrase in ("permission denied", "fs_permission_denied", "unable to open")):
+        return "session_permission"
+    if any(phrase in text for phrase in ("network failure", "dns", "connection refused", "could not resolve", "timed out connecting")):
+        return "network_error"
+    if any(phrase in text for phrase in ("no auth credentials", "unauthorized", "authentication failed", "token expired")):
+        return "auth_error"
+    if any(phrase in text for phrase in ("operation not permitted", "sandbox", "platform approval")):
+        return "platform_permission"
+    return "upstream_error"
+
+
 def _signal_group(pgid: int, sig: int) -> None:
     """Signal whole group; never gated on leader poll()."""
     try:
@@ -242,7 +266,8 @@ def _finish(
     if timed_out:
         error: dict[str, str] | None = {"code": "timeout", "message": timeout_msg}
     elif code != 0:
-        error = {"code": "upstream_error", "message": err.strip() or f"exit {code}"}
+        message = err.strip() or out.strip() or f"exit {code}"
+        error = {"code": classify_failure(message), "message": message}
     else:
         error = None
     result = call_result(
@@ -336,13 +361,13 @@ def cmd_call(
     as_json: bool,
     env: Mapping[str, str] | None = None,
 ) -> int:
-    path = find_grok()
+    path = find_delegate()
     if path is None:
         return _not_found("call", model, as_json)
     argv = [
-        path, "-p", prompt, "-m", model,
-        "--output-format", "plain", "--tools", "",
-        "--no-memory", "--no-subagents", "--no-auto-update",
+        path, os.getcwd(), "-p", prompt, "-m", model,
+        "--output-format", "plain", "--always-approve", "--check",
+        "--disable-web-search", "--no-memory", "--no-subagents", "--max-turns", "1",
     ]
     code, out, err, timed_out, ms = run_grok(argv, timeout=float(timeout), env=env)
     return _finish(

@@ -1,12 +1,12 @@
 # clx-grok-call
 
-One bounded call to the installed [Grok](https://x.ai) CLI (`grok`). Runtime is **Python 3.10+ stdlib only**. The wrapper spawns exactly one child, applies a hard timeout, never retries, and returns a truthful process exit code.
+One bounded call to the installed [Grok](https://x.ai) CLI through `clx-grok-delegate`. Runtime is **Python 3.10+ stdlib only**. The wrapper spawns exactly one child, applies a hard timeout, never retries, and returns a truthful process exit code.
 
 **State caveat:** this wrapper does **not** write its own prompt/response/trace/cache/session files. It is **not** a claim that upstream Grok is fully stateless — Grok account auth, provider session, or other host-side Grok state may still apply outside this package.
 
 ## Install
 
-Requires `grok` on `PATH` and a working Grok login/session for live calls.
+Requires `grok` and `clx-grok-delegate` on `PATH` plus a working Grok login/session for live calls.
 
 ```bash
 pip install -e ".[dev]"
@@ -44,17 +44,17 @@ clx-grok-call models
 clx-grok-call doctor
 ```
 
-### Call flags sent to `grok`
+### Call flags sent to the shared runtime
 
 Every `call` invocation runs approximately:
 
 ```text
-grok -p <prompt> -m <model> --output-format plain --tools "" \
-  --no-memory --no-subagents --no-auto-update
+clx-grok-delegate <repo> -p <prompt> -m <model> --output-format plain \
+  --always-approve --check --disable-web-search --no-memory --no-subagents --max-turns 1
 ```
 
-- **tools disabled** (`--tools ""`)
-- **no memory** / **no subagents** / **no auto-update**
+- **shared AGENTS.md system prompt** and immutable Grok runtime
+- **read-only check mode**, **no memory**, **no subagents**, **no web search**
 - **no automatic retries**
 
 `doctor` probes with `grok --version --no-auto-update` (bounded timeout, no prompt).
@@ -91,6 +91,7 @@ With `--json`, stdout is **exactly one** JSON object:
 ```
 
 On failure, `ok` is false, `error` is `{ "code": "...", "message": "..." }`, and process exit matches `exit_code`.
+Known failure codes distinguish `auth_error`, `network_error`, `session_permission`, `model_registry_error`, `chain_error`, and `platform_permission`; unmatched failures remain `upstream_error`.
 
 ## Plugin hosts
 

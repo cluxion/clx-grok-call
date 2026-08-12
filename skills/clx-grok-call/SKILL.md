@@ -29,4 +29,4 @@ clx-grok-call doctor
 2. Never start recursive agent loops or chain further Grok calls; refuse recursive execution without any Grok call.
 3. Do **not** silently edit files from the response; only report unless the user asked for edits.
 4. Prefer `--json` when the host needs a structured contract (`ok`, `output`, `error`, `exit_code`, …).
-5. Wrapper disables tools/memory/subagents/auto-update on the upstream `grok` process; it does not rewrite Grok account auth/session behavior.
+5. The CLI uses `clx-grok-delegate` read-only mode, so the shared AGENTS.md system prompt, immutable runtime, memory/subagent disablement, and accurate auth/network/session/chain error classes all apply.

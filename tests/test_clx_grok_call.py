@@ -147,6 +147,9 @@ def install_fake_grok(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     grok = bindir / "grok"
     grok.write_text(_fake_grok_source(), encoding="utf-8")
     grok.chmod(0o755)
+    delegate = bindir / "clx-grok-delegate"
+    delegate.write_text(_fake_grok_source(), encoding="utf-8")
+    delegate.chmod(0o755)
     monkeypatch.setenv("PATH", f"{bindir}{os.pathsep}{os.environ.get('PATH', '')}")
     # Isolate any accidental HOME writes; design forbids session/cache files.
     home = tmp_path / "home"
@@ -310,14 +313,15 @@ def test_positional_prompt_spawns_one_grok_with_default_model(
     rows = invocations(tmp_path)
     assert len(rows) == 1, rows
     argv = rows[0]["argv"]
-    assert Path(argv[0]).name == "grok"
+    assert Path(argv[0]).name == "clx-grok-delegate"
+    assert Path(argv[1]).is_dir()
     assert flag_values(argv, "-p", "--single") == ["hello from clx"]
     models = flag_values(argv, "-m", "--model")
     assert models == ["grok-4.5"], argv
-    assert flag_values(argv, "--tools") == [""], argv
     assert argv.count("--no-memory") == 1, argv
     assert argv.count("--no-subagents") == 1, argv
-    assert argv.count("--no-auto-update") == 1, argv
+    assert argv.count("--check") == 1, argv
+    assert flag_values(argv, "--max-turns") == ["1"], argv
     assert "FAKE_GROK_OK" in proc.stdout
 
 
@@ -375,6 +379,33 @@ def test_upstream_nonzero_preserved(
     assert proc.returncode == 7
     assert len(invocations(tmp_path)) == 1
     assert "upstream boom" in proc.stderr
+
+
+@pytest.mark.parametrize(
+    ("message", "expected"),
+    [
+        ("No auth credentials for cli-chat-proxy", "auth_error"),
+        ("network failure connecting to https://cli-chat-proxy.grok.com", "network_error"),
+        ("Couldn't create session: Permission denied", "session_permission"),
+        ("model registry is unavailable", "model_registry_error"),
+        ("one cross-executor hop is allowed", "chain_error"),
+        ("Operation not permitted by sandbox", "platform_permission"),
+    ],
+)
+def test_json_classifies_real_failure_categories(
+    message: str,
+    expected: str,
+    fake_grok: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CLX_FAKE_GROK_EXIT", "126")
+    monkeypatch.setenv("CLX_FAKE_GROK_STDERR", message)
+    monkeypatch.setenv("CLX_FAKE_GROK_STDOUT", "")
+
+    proc = run_cli(["--json", "classify"])
+
+    payload = assert_json_envelope(proc.stdout, exit_code=126)
+    assert payload["error"]["code"] == expected
 
 
 def test_stderr_warning_does_not_contaminate_plain_stdout(
@@ -619,7 +650,7 @@ def test_enoexec_garbage_executable_exits_126_without_traceback(
 ) -> None:
     bindir = tmp_path / "bin"
     bindir.mkdir()
-    garbage = bindir / "grok"
+    garbage = bindir / "clx-grok-delegate"
     # Not a valid script/binary; execve → ENOEXEC on Unix.
     garbage.write_bytes(b"\x00\x01not-an-executable")
     garbage.chmod(0o755)
@@ -724,7 +755,7 @@ def test_doctor_rejects_garbage_and_probes_version_no_auto_update(
     assert "ok" not in text or "not" in text or bad.returncode != 0
 
 
-def test_call_argv_contains_no_auto_update(
+def test_call_argv_uses_bounded_delegate_contract(
     tmp_path: Path, fake_grok: Path
 ) -> None:
     proc = run_cli(["include no-auto-update"])
@@ -732,7 +763,9 @@ def test_call_argv_contains_no_auto_update(
     rows = invocations(tmp_path)
     assert len(rows) == 1
     argv = rows[0]["argv"]
-    assert "--no-auto-update" in argv, argv
+    assert Path(argv[0]).name == "clx-grok-delegate"
+    assert "--check" in argv, argv
+    assert flag_values(argv, "--max-turns") == ["1"], argv
 
 
 def test_json_parse_error_invalid_timeout_one_error_envelope(
