@@ -1,7 +1,7 @@
 # clx-grok-call Design
 
-- Version: 0.1.2
-- Date: 2026-07-11
+- Version: 0.1.3
+- Date: 2026-08-12
 - Purpose: expose the installed Grok CLI as one bounded call for Codex, Claude Code, and terminals.
 - Scale: Small (~9 packaging/docs files + one runtime module), no C0 split.
 
@@ -10,7 +10,7 @@
 | Area | Choice | Why |
 |---|---|---|
 | Runtime | Python 3.10+ standard library | Subprocess, signal, timeout, JSON without runtime deps |
-| Upstream | Installed `grok` executable | Reuse working Grok 4.5 transport; no auth/proxy duplication |
+| Upstream | Installed `grok` executable | Reuse the configured Grok transport; no auth/proxy duplication |
 | Packaging | setuptools `py-modules` + wheel | Single top-level module `src/clx_grok_call.py` |
 | Tests | pytest | Contract and lifecycle coverage |
 | Hosts | Codex + Claude plugin manifests/skills | Same PATH CLI; no host-specific runtime |
@@ -73,9 +73,9 @@ Commands (no `status`):
 
 | Command | Behavior |
 |---|---|
-| `call` (default) | One `clx-grok-delegate` call with isolation flags; a cleaned empty repository when cwd is not in Git |
-| `models` | Pass-through `grok models` |
-| `doctor` | Bounded probe `grok --version --no-auto-update` (no prompt) |
+| `call` (default) | One `clx-grok-delegate` call with isolation flags; one stable empty repository when cwd is not in Git |
+| `models` | Pass-through `grok --no-auto-update models` |
+| `doctor` | Bounded probe `grok --no-auto-update --version` (no prompt) |
 
 Call argv contract:
 
@@ -116,7 +116,7 @@ Internal logic:
 1. Parse argv; subcommands are only `models` and `doctor` (not `status`).
 2. Validate timeout in `1..600` seconds (default 120).
 3. Resolve prompt: positional tokens join as prompt and **never** read stdin; stdin-only when no positional tokens and not a TTY; empty → usage 2.
-4. Resolve the current Git root; otherwise initialize one empty temporary repository, then spawn exactly one delegate in a new process group (`start_new_session=True`).
+4. Resolve the current Git root; otherwise reuse `~/.grok/clx-one-shot-repo`, then spawn exactly one delegate in a new process group (`start_new_session=True`).
 5. Bounded `communicate`; on timeout SIGTERM group → grace → SIGKILL; no retry.
 6. Render plain text or a single JSON envelope; return truthful exit code.
 
@@ -124,7 +124,7 @@ Internal logic:
 
 **Wrapper-only:**
 
-- Does not write prompt/response/trace/config/cache/session files of its own. A non-Git call owns and removes one empty temporary repository.
+- Does not write prompt/response/trace/config/cache/session files of its own. A non-Git call reuses one wrapper-owned empty repository solely as the delegate root.
 - No Hermes, MCP, picker injection, daemon, database, nested agent, recursive call, or cross-asset import.
 - Isolation flags force tools-off / memory-off / subagents-off / no-auto-update on the child argv.
 
@@ -134,7 +134,7 @@ Internal logic:
 
 Constraints:
 
-- Default model `grok-4.5`; `--model` overrides.
+- Default model comes from `~/.agents/models.toml` role `grok_exec`; `--model` overrides one call.
 - Canonical CLI `clx-grok-call`; legacy alias `grok-call`.
 - `models` and upstream response text are passed through, not schema-parsed.
 
@@ -148,7 +148,7 @@ Constraints:
 
 - [x] Scaffold manifests, package metadata, skill, and runtime file.
 - [x] Contract test: empty prompt → exit 2 without spawn; positional prompt never reads stdin.
-- [x] Contract test: one invocation spawns exactly one child with `grok-4.5`.
+- [x] Contract test: one invocation spawns exactly one child with the registry model.
 - [x] Contract test: success/failure JSON is one valid object; exit agrees with `ok`.
 - [x] Lifecycle test: timeout exits 124 within bounded wall time; no orphan children.
 - [x] Lifecycle test: interrupt / SIGTERM paths clean process group.

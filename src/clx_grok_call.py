@@ -6,16 +6,16 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
 import sys
-import tempfile
 import time
 from importlib.metadata import PackageNotFoundError, version
+from pathlib import Path
 from typing import Any, Mapping
 
-DEFAULT_MODEL = "grok-4.5"
 DEFAULT_TIMEOUT = 120
 MIN_TIMEOUT, MAX_TIMEOUT = 1, 600
 EXIT_USAGE, EXIT_SPAWN, EXIT_MISSING = 2, 126, 127
@@ -23,6 +23,7 @@ EXIT_TIMEOUT, EXIT_INTERRUPT, EXIT_PIPE, EXIT_SIGTERM = 124, 130, 141, 143
 GRACE = 0.5
 COMMANDS = frozenset({"models", "doctor"})
 _active_pgid: int | None = None
+MODEL_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/+:@-]*")
 
 
 def package_version() -> str:
@@ -57,7 +58,10 @@ def build_parser() -> argparse.ArgumentParser:
         "-V", "--version", action="version",
         version=f"%(prog)s {package_version()}",
     )
-    p.add_argument("-m", "--model", default=DEFAULT_MODEL, help=f"모델 (기본: {DEFAULT_MODEL})")
+    p.add_argument(
+        "-m", "--model",
+        help="모델 (기본: ~/.agents/models.toml의 roles.grok_exec.model)",
+    )
     p.add_argument(
         "-t", "--timeout", type=_timeout_type, default=DEFAULT_TIMEOUT,
         help=f"초 단위 타임아웃 ({MIN_TIMEOUT}..{MAX_TIMEOUT}, 기본: {DEFAULT_TIMEOUT})",
@@ -155,6 +159,70 @@ def classify_failure(message: str) -> str:
     if any(phrase in text for phrase in ("operation not permitted", "sandbox", "platform approval")):
         return "platform_permission"
     return "upstream_error"
+
+
+def resolve_model(explicit: str | None, env: Mapping[str, str]) -> str:
+    if explicit is not None:
+        if not MODEL_ID.fullmatch(explicit):
+            raise ValueError("model registry override is invalid")
+        return explicit
+    home = env.get("CLX_OWNER_HOME") or env.get("HOME")
+    if not home:
+        raise ValueError("model registry HOME is unavailable")
+    registry = Path(home) / ".agents" / "models.toml"
+    try:
+        lines = registry.read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        raise ValueError(f"model registry is unavailable: {exc}") from None
+    section = ""
+    found: list[str] = []
+    for raw in lines:
+        line = raw.split("#", 1)[0].strip()
+        if not line:
+            continue
+        section_match = re.fullmatch(r"\[([^]]+)]", line)
+        if section_match:
+            section = section_match.group(1).strip()
+            continue
+        if section != "roles.grok_exec" or not line.startswith("model"):
+            continue
+        model_match = re.fullmatch(r'model\s*=\s*"([^"\\]+)"', line)
+        if not model_match or not MODEL_ID.fullmatch(model_match.group(1)):
+            raise ValueError("model registry grok_exec entry is invalid")
+        found.append(model_match.group(1))
+    if len(found) != 1:
+        raise ValueError("model registry grok_exec entry is missing or duplicated")
+    return found[0]
+
+
+def stable_repo(env: Mapping[str, str]) -> Path:
+    home = env.get("CLX_OWNER_HOME") or env.get("HOME")
+    if not home:
+        raise OSError("HOME is unavailable")
+    grok_home = Path(home) / ".grok"
+    grok_home.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if grok_home.is_symlink() or not grok_home.is_dir():
+        raise OSError("Grok home is not a regular directory")
+    repo = grok_home / "clx-one-shot-repo"
+    repo.mkdir(mode=0o700, exist_ok=True)
+    if repo.is_symlink() or not repo.is_dir():
+        raise OSError("one-shot repository is not a regular directory")
+    entries = set(repo.iterdir())
+    if entries and entries != {repo / ".git"}:
+        raise OSError("one-shot repository contains unexpected entries")
+    git_dir = repo / ".git"
+    if not git_dir.exists():
+        initialized = subprocess.run(
+            ["git", "init", "-q", str(repo)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if initialized.returncode:
+            raise OSError(initialized.stderr.strip() or "one-shot repository init failed")
+    if git_dir.is_symlink() or not git_dir.is_dir():
+        raise OSError("one-shot repository metadata is invalid")
+    return repo
 
 
 def _signal_group(pgid: int, sig: int) -> None:
@@ -300,7 +368,7 @@ def _not_found(command: str, model: str | None, as_json: bool) -> int:
 
 
 def cmd_doctor(*, as_json: bool, timeout: int) -> int:
-    """Bounded real probe: grok --version --no-auto-update (no prompt)."""
+    """Bounded real probe: grok --no-auto-update --version (no prompt)."""
     path = find_grok()
     if path is None:
         msg = "doctor: grok 실행 파일이 없습니다"
@@ -315,7 +383,7 @@ def cmd_doctor(*, as_json: bool, timeout: int) -> int:
         return EXIT_MISSING
 
     code, out, err, timed_out, ms = run_grok(
-        [path, "--version", "--no-auto-update"],
+        [path, "--no-auto-update", "--version"],
         timeout=min(float(timeout), 30.0),
     )
     if timed_out or code != 0:
@@ -346,7 +414,9 @@ def cmd_models(*, as_json: bool, timeout: int, env: Mapping[str, str] | None = N
     path = find_grok()
     if path is None:
         return _not_found("models", None, as_json)
-    code, out, err, timed_out, ms = run_grok([path, "models"], timeout=float(timeout), env=env)
+    code, out, err, timed_out, ms = run_grok(
+        [path, "--no-auto-update", "models"], timeout=float(timeout), env=env
+    )
     return _finish(
         command="models", model=None, code=code, out=out, err=err,
         timed_out=timed_out, duration_ms=ms, as_json=as_json,
@@ -357,7 +427,7 @@ def cmd_models(*, as_json: bool, timeout: int, env: Mapping[str, str] | None = N
 def cmd_call(
     prompt: str,
     *,
-    model: str,
+    model: str | None,
     timeout: int,
     as_json: bool,
     env: Mapping[str, str] | None = None,
@@ -365,8 +435,9 @@ def cmd_call(
     path = find_delegate()
     if path is None:
         return _not_found("call", model, as_json)
-    temporary_repo = None
+    effective_env = env if env is not None else os.environ
     try:
+        model = resolve_model(model, effective_env)
         probe = subprocess.run(
             ["git", "-C", os.getcwd(), "rev-parse", "--show-toplevel"],
             capture_output=True,
@@ -376,22 +447,8 @@ def cmd_call(
         if probe.returncode == 0:
             repo = probe.stdout.strip()
         else:
-            temporary_repo = tempfile.TemporaryDirectory(prefix="clx-grok-call-")
-            initialized = subprocess.run(
-                ["git", "init", "-q", temporary_repo.name],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            if initialized.returncode:
-                message = initialized.stderr.strip() or "임시 Git 저장소를 만들 수 없습니다"
-                return _finish(
-                    command="call", model=model, code=EXIT_SPAWN, out="", err=message,
-                    timed_out=False, duration_ms=0, as_json=as_json,
-                    timeout_msg="호출이 시간 초과되었습니다",
-                )
-            repo = temporary_repo.name
-    except OSError as exc:
+            repo = str(stable_repo(effective_env))
+    except (OSError, ValueError) as exc:
         return _finish(
             command="call", model=model, code=EXIT_SPAWN, out="", err=str(exc),
             timed_out=False, duration_ms=0, as_json=as_json,
@@ -400,18 +457,15 @@ def cmd_call(
     argv = [
         path, repo, "-p", prompt, "-m", model,
         "--output-format", "plain", "--always-approve", "--check",
-        "--disable-web-search", "--no-memory", "--no-subagents", "--max-turns", "1",
+        "--disable-web-search", "--no-memory", "--no-subagents", "--tools", "",
+        "--no-auto-update", "--max-turns", "1",
     ]
-    try:
-        code, out, err, timed_out, ms = run_grok(argv, timeout=float(timeout), env=env)
-        return _finish(
-            command="call", model=model, code=code, out=out, err=err,
-            timed_out=timed_out, duration_ms=ms, as_json=as_json,
-            timeout_msg="호출이 시간 초과되었습니다",
-        )
-    finally:
-        if temporary_repo is not None:
-            temporary_repo.cleanup()
+    code, out, err, timed_out, ms = run_grok(argv, timeout=float(timeout), env=env)
+    return _finish(
+        command="call", model=model, code=code, out=out, err=err,
+        timed_out=timed_out, duration_ms=ms, as_json=as_json,
+        timeout_msg="호출이 시간 초과되었습니다",
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -423,7 +477,7 @@ def main(argv: list[str] | None = None) -> int:
     except SystemExit as exc:
         code = 0 if exc.code is None else (exc.code if isinstance(exc.code, int) else EXIT_USAGE)
         if want_json and code == EXIT_USAGE:
-            return emit_result(usage_result("잘못된 인자입니다", model=DEFAULT_MODEL), as_json=True)
+            return emit_result(usage_result("잘못된 인자입니다"), as_json=True)
         return code
 
     tokens, as_json, model, timeout = list(args.tokens), bool(args.json), args.model, args.timeout

@@ -1,8 +1,8 @@
 # clx-grok-call
 
-One bounded call to the installed [Grok](https://x.ai) CLI through `clx-grok-delegate`. Runtime is **Python 3.10+ stdlib only**. The wrapper runs one delegate, applies a hard timeout, never retries, and returns a truthful process exit code. Outside a Git working tree it creates and removes one empty temporary repository for the delegate sandbox.
+One bounded call to the installed [Grok](https://x.ai) CLI through `clx-grok-delegate`. Runtime is **Python 3.10+ stdlib only**. The wrapper runs one delegate, applies a hard timeout, never retries, and returns a truthful process exit code. Outside a Git working tree it reuses one wrapper-owned empty repository at `~/.grok/clx-one-shot-repo` so repeated calls share one runtime cache key.
 
-**State caveat:** this wrapper does **not** write its own prompt/response/trace/cache/session files. Its non-Git fallback uses a cleaned temporary repository. It is **not** a claim that upstream Grok is fully stateless — Grok account auth, provider session, or other host-side Grok state may still apply outside this package.
+**State caveat:** this wrapper does **not** write its own prompt/response/trace/cache/session files. Its only persistent fallback state is the empty non-Git repository above. It is **not** a claim that upstream Grok is fully stateless — Grok account auth, provider session, or other host-side Grok state may still apply outside this package.
 
 ## Install
 
@@ -22,14 +22,14 @@ Console scripts after install:
 ## Use
 
 ```bash
-# Positional prompt (default model: grok-4.5)
+# Positional prompt (default: roles.grok_exec.model in ~/.agents/models.toml)
 clx-grok-call "Summarize this approach in three bullets"
 
 # Stdin prompt (only when no positional tokens)
 echo "Review this stack trace" | clx-grok-call
 
 # Model override
-clx-grok-call -m grok-4.5 "Second opinion on this design"
+clx-grok-call -m <model-id> "Second opinion on this design"
 
 # JSON envelope on stdout (success and failure)
 clx-grok-call --json "What are the risks?"
@@ -50,14 +50,15 @@ Every `call` invocation runs approximately:
 
 ```text
 clx-grok-delegate <repo> -p <prompt> -m <model> --output-format plain \
-  --always-approve --check --disable-web-search --no-memory --no-subagents --max-turns 1
+  --always-approve --check --disable-web-search --no-memory --no-subagents \
+  --tools "" --no-auto-update --max-turns 1
 ```
 
 - **shared AGENTS.md system prompt** and immutable Grok runtime
 - **read-only check mode**, **no memory**, **no subagents**, **no web search**
 - **no automatic retries**
 
-`doctor` probes with `grok --version --no-auto-update` (bounded timeout, no prompt).
+`doctor` probes with `grok --no-auto-update --version` (bounded timeout, no prompt).
 
 ## Exit codes
 
@@ -81,7 +82,7 @@ With `--json`, stdout is **exactly one** JSON object:
 {
   "ok": true,
   "command": "call",
-  "model": "grok-4.5",
+  "model": "configured-model",
   "output": "...",
   "error": null,
   "exit_code": 0,

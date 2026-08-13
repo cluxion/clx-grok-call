@@ -123,8 +123,8 @@ def main() -> int:
         sys.stderr.flush()
     out = os.environ.get("CLX_FAKE_GROK_STDOUT")
     if out is None:
-        if len(sys.argv) >= 2 and sys.argv[1] == "models":
-            out = "grok-4.5\ngrok-3\n"
+        if "models" in sys.argv[1:]:
+            out = "fixture-grok\nfixture-alt\n"
         else:
             out = "FAKE_GROK_OK"
     sys.stdout.write(out)
@@ -154,6 +154,12 @@ def install_fake_grok(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     # Isolate any accidental HOME writes; design forbids session/cache files.
     home = tmp_path / "home"
     home.mkdir(exist_ok=True)
+    registry = home / ".agents" / "models.toml"
+    registry.parent.mkdir()
+    registry.write_text(
+        '[roles.grok_exec]\nmodel = "fixture-grok"\neffort = "high"\n',
+        encoding="utf-8",
+    )
     monkeypatch.setenv("HOME", str(home))
     # Keep the fake Python executable from creating its own bytecode cache in HOME.
     monkeypatch.setenv("PYTHONDONTWRITEBYTECODE", "1")
@@ -300,7 +306,7 @@ def test_version_uses_package_metadata_without_starting_grok(
 ) -> None:
     proc = run_cli(["--version"])
     assert proc.returncode == 0
-    assert proc.stdout == "clx-grok-call 0.1.2\n"
+    assert proc.stdout == "clx-grok-call 0.1.3\n"
     assert proc.stderr == ""
     assert invocations(tmp_path) == []
 
@@ -317,29 +323,37 @@ def test_positional_prompt_spawns_one_grok_with_default_model(
     assert Path(argv[1]).is_dir()
     assert flag_values(argv, "-p", "--single") == ["hello from clx"]
     models = flag_values(argv, "-m", "--model")
-    assert models == ["grok-4.5"], argv
+    assert models == ["fixture-grok"], argv
     assert argv.count("--no-memory") == 1, argv
     assert argv.count("--no-subagents") == 1, argv
     assert argv.count("--check") == 1, argv
+    assert flag_values(argv, "--tools") == [""], argv
+    assert argv.count("--no-auto-update") == 1, argv
     assert flag_values(argv, "--max-turns") == ["1"], argv
     assert "FAKE_GROK_OK" in proc.stdout
 
 
-def test_call_from_non_git_directory_uses_a_cleaned_ephemeral_repo(
+def test_call_from_non_git_directory_reuses_one_owned_stable_repo(
     tmp_path: Path, fake_grok: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     outside = tmp_path / "outside"
     outside.mkdir()
     monkeypatch.chdir(outside)
 
-    proc = run_cli(["works outside git"])
+    first = run_cli(["works outside git"])
+    second = run_cli(["works outside git again"])
 
-    assert proc.returncode == 0, proc.stderr
+    assert first.returncode == 0, first.stderr
+    assert second.returncode == 0, second.stderr
     rows = invocations(tmp_path)
-    assert len(rows) == 1
-    repo = Path(rows[0]["argv"][1])
+    assert len(rows) == 2
+    repos = [Path(row["argv"][1]) for row in rows]
+    assert repos[0] == repos[1]
+    repo = repos[0]
     assert repo != outside
-    assert not repo.exists()
+    assert repo == Path(os.environ["HOME"]) / ".grok" / "clx-one-shot-repo"
+    assert (repo / ".git").is_dir()
+    assert set(repo.iterdir()) == {repo / ".git"}
 
 
 def test_model_override(tmp_path: Path, fake_grok: Path) -> None:
@@ -359,18 +373,37 @@ def test_stdin_only_prompt(tmp_path: Path, fake_grok: Path) -> None:
     assert len(rows) == 1
     argv = rows[0]["argv"]
     assert flag_values(argv, "-p", "--single") == ["stdin prompt body"]
-    assert flag_values(argv, "-m", "--model") == ["grok-4.5"]
+    assert flag_values(argv, "-m", "--model") == ["fixture-grok"]
 
 
-def test_call_leaves_isolated_home_empty(tmp_path: Path, fake_grok: Path) -> None:
-    """The wrapper must not create session, cache, or memory state in HOME."""
+def test_call_creates_only_registry_and_one_owned_empty_repo(
+    tmp_path: Path, fake_grok: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     home = Path(os.environ["HOME"])
-    assert list(home.iterdir()) == []
+    assert set(home.iterdir()) == {home / ".agents"}
+    outside = tmp_path / "outside-state-check"
+    outside.mkdir()
+    monkeypatch.chdir(outside)
 
     proc = run_cli(["no persistent state"])
 
     assert proc.returncode == 0, proc.stderr
-    assert list(home.iterdir()) == []
+    assert set(home.iterdir()) == {home / ".agents", home / ".grok"}
+    repo = home / ".grok" / "clx-one-shot-repo"
+    assert set(repo.iterdir()) == {repo / ".git"}
+
+
+def test_missing_default_model_registry_fails_before_delegate(
+    tmp_path: Path, fake_grok: Path
+) -> None:
+    registry = Path(os.environ["HOME"]) / ".agents" / "models.toml"
+    registry.unlink()
+
+    proc = run_cli(["--json", "registry required"])
+
+    payload = assert_json_envelope(proc.stdout, exit_code=126)
+    assert payload["error"]["code"] == "model_registry_error"
+    assert invocations(tmp_path) == []
 
 
 def test_missing_grok_exit_127(
@@ -456,7 +489,7 @@ def test_json_success_and_failure_single_object(
     proc = run_cli(["--json", "json prompt"])
     assert proc.returncode == expected_exit
     payload = assert_json_envelope(proc.stdout, exit_code=expected_exit)
-    assert payload["model"] == "grok-4.5"
+    assert payload["model"] == "fixture-grok"
     if mode == "success":
         assert "json-ok-body" in payload["output"]
     else:
@@ -496,7 +529,8 @@ def test_models_passthrough(tmp_path: Path, fake_grok: Path) -> None:
     assert len(rows) == 1
     argv = rows[0]["argv"]
     assert "models" in argv[1:], argv
-    assert "grok-4.5" in proc.stdout
+    assert argv.index("--no-auto-update") < argv.index("models"), argv
+    assert "fixture-grok" in proc.stdout
     assert proc.stdout.strip()
 
 
@@ -755,6 +789,8 @@ def test_doctor_rejects_garbage_and_probes_version_no_auto_update(
     probe = rows[-1]["argv"]
     assert "--version" in probe or "-V" in probe, probe
     assert "--no-auto-update" in probe, probe
+    version_flag = "--version" if "--version" in probe else "-V"
+    assert probe.index("--no-auto-update") < probe.index(version_flag), probe
     assert flag_values(probe, "-p", "--single") == [], probe
     # Probe must be bounded / non-interactive (no hanging prompt flags).
     assert "-p" not in probe
