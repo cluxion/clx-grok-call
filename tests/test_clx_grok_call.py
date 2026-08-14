@@ -157,7 +157,7 @@ def install_fake_grok(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     registry = home / ".agents" / "models.toml"
     registry.parent.mkdir()
     registry.write_text(
-        '[roles.grok_exec]\nmodel = "fixture-grok"\neffort = "high"\n',
+        '[roles.grok_exec]\nmodel = "cli-default"\neffort = "xhigh"\n',
         encoding="utf-8",
     )
     monkeypatch.setenv("HOME", str(home))
@@ -306,7 +306,7 @@ def test_version_uses_package_metadata_without_starting_grok(
 ) -> None:
     proc = run_cli(["--version"])
     assert proc.returncode == 0
-    assert proc.stdout == "clx-grok-call 0.1.3\n"
+    assert proc.stdout == "clx-grok-call 0.1.4\n"
     assert proc.stderr == ""
     assert invocations(tmp_path) == []
 
@@ -322,8 +322,8 @@ def test_positional_prompt_spawns_one_grok_with_default_model(
     assert Path(argv[0]).name == "clx-grok-delegate"
     assert Path(argv[1]).is_dir()
     assert flag_values(argv, "-p", "--single") == ["hello from clx"]
-    models = flag_values(argv, "-m", "--model")
-    assert models == ["fixture-grok"], argv
+    assert flag_values(argv, "-m", "--model") == [], argv
+    assert flag_values(argv, "--reasoning-effort", "--effort") == ["xhigh"], argv
     assert argv.count("--no-memory") == 1, argv
     assert argv.count("--no-subagents") == 1, argv
     assert argv.count("--check") == 1, argv
@@ -364,6 +364,20 @@ def test_model_override(tmp_path: Path, fake_grok: Path) -> None:
     argv = rows[0]["argv"]
     assert flag_values(argv, "-p", "--single") == ["override me"]
     assert flag_values(argv, "-m", "--model") == ["custom-model"]
+    assert flag_values(argv, "--reasoning-effort", "--effort") == ["xhigh"]
+
+
+def test_effort_override(tmp_path: Path, fake_grok: Path) -> None:
+    proc = run_cli(["--effort", "medium", "override effort"])
+    assert proc.returncode == 0, proc.stderr
+    argv = invocations(tmp_path)[0]["argv"]
+    assert flag_values(argv, "--reasoning-effort", "--effort") == ["medium"]
+
+
+def test_invalid_effort_is_rejected_before_delegate(tmp_path: Path, fake_grok: Path) -> None:
+    proc = run_cli(["--effort", "ultra", "invalid effort"])
+    assert proc.returncode == 126
+    assert invocations(tmp_path) == []
 
 
 def test_stdin_only_prompt(tmp_path: Path, fake_grok: Path) -> None:
@@ -373,7 +387,8 @@ def test_stdin_only_prompt(tmp_path: Path, fake_grok: Path) -> None:
     assert len(rows) == 1
     argv = rows[0]["argv"]
     assert flag_values(argv, "-p", "--single") == ["stdin prompt body"]
-    assert flag_values(argv, "-m", "--model") == ["fixture-grok"]
+    assert flag_values(argv, "-m", "--model") == []
+    assert flag_values(argv, "--reasoning-effort", "--effort") == ["xhigh"]
 
 
 def test_call_creates_only_registry_and_one_owned_empty_repo(
@@ -489,7 +504,7 @@ def test_json_success_and_failure_single_object(
     proc = run_cli(["--json", "json prompt"])
     assert proc.returncode == expected_exit
     payload = assert_json_envelope(proc.stdout, exit_code=expected_exit)
-    assert payload["model"] == "fixture-grok"
+    assert payload["model"] == "cli-default"
     if mode == "success":
         assert "json-ok-body" in payload["output"]
     else:

@@ -22,7 +22,7 @@ Console scripts after install:
 ## Use
 
 ```bash
-# Positional prompt (default: roles.grok_exec.model in ~/.agents/models.toml)
+# Positional prompt (default: roles.grok_exec model selector + effort)
 clx-grok-call "Summarize this approach in three bullets"
 
 # Stdin prompt (only when no positional tokens)
@@ -30,6 +30,9 @@ echo "Review this stack trace" | clx-grok-call
 
 # Model override
 clx-grok-call -m <model-id> "Second opinion on this design"
+
+# One-call reasoning override
+clx-grok-call --effort medium "Quick second opinion"
 
 # JSON envelope on stdout (success and failure)
 clx-grok-call --json "What are the risks?"
@@ -49,7 +52,8 @@ clx-grok-call doctor
 Every `call` invocation runs approximately:
 
 ```text
-clx-grok-delegate <repo> -p <prompt> -m <model> --output-format plain \
+clx-grok-delegate <repo> -p <prompt> [--model <explicit-model>] \
+  --reasoning-effort <registry-or-explicit-effort> --output-format plain \
   --always-approve --check --disable-web-search --no-memory --no-subagents \
   --tools "" --no-auto-update --max-turns 1
 ```
@@ -57,6 +61,7 @@ clx-grok-delegate <repo> -p <prompt> -m <model> --output-format plain \
 - **shared AGENTS.md system prompt** and immutable Grok runtime
 - **read-only check mode**, **no memory**, **no subagents**, **no web search**
 - **no automatic retries**
+- `cli-default` remains a selector; the delegate resolves it from the live Grok catalog on every call
 
 `doctor` probes with `grok --no-auto-update --version` (bounded timeout, no prompt).
 

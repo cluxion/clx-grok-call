@@ -1,7 +1,7 @@
 # clx-grok-call Design
 
-- Version: 0.1.3
-- Date: 2026-08-12
+- Version: 0.1.4
+- Date: 2026-08-13
 - Purpose: expose the installed Grok CLI as one bounded call for Codex, Claude Code, and terminals.
 - Scale: Small (~9 packaging/docs files + one runtime module), no C0 split.
 
@@ -50,7 +50,7 @@ clx-grok-call/
 
 IN (main):
 
-- `argv: list[str]` ← process arguments; command, prompt, model, timeout, output mode.
+- `argv: list[str]` ← process arguments; command, prompt, model, effort, timeout, output mode.
 
 IN (aux):
 
@@ -80,7 +80,8 @@ Commands (no `status`):
 Call argv contract:
 
 ```text
-grok -p <prompt> -m <model> --output-format plain --tools "" \
+clx-grok-delegate <repo> -p <prompt> [--model <explicit-model>] \
+  --reasoning-effort <effort> --output-format plain --tools "" \
   --no-memory --no-subagents --no-auto-update
 ```
 
@@ -134,7 +135,7 @@ Internal logic:
 
 Constraints:
 
-- Default model comes from `~/.agents/models.toml` role `grok_exec`; `--model` overrides one call.
+- Model selector and effort come from `~/.agents/models.toml` role `grok_exec`; `cli-default` lets the delegate resolve the live CLI default. `--model` and `--effort` override one call.
 - Canonical CLI `clx-grok-call`; legacy alias `grok-call`.
 - `models` and upstream response text are passed through, not schema-parsed.
 

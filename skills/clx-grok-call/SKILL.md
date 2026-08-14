@@ -18,6 +18,7 @@ Thin host skill for one bounded call through the installed `clx-grok-call` CLI (
 ```bash
 clx-grok-call --json "prompt here"
 clx-grok-call --json -m <model-id> "prompt here"
+clx-grok-call --json --effort <tier> "prompt here"
 echo "prompt" | clx-grok-call --json
 clx-grok-call models
 clx-grok-call doctor
@@ -29,4 +30,4 @@ clx-grok-call doctor
 2. Never start recursive agent loops or chain further Grok calls; refuse recursive execution without any Grok call.
 3. Do **not** silently edit files from the response; only report unless the user asked for edits.
 4. Prefer `--json` when the host needs a structured contract (`ok`, `output`, `error`, `exit_code`, …).
-5. The CLI uses `clx-grok-delegate` read-only mode, reads the default model from `~/.agents/models.toml`, reuses one empty non-Git repository, disables tools/memory/subagents/updates, and preserves the shared AGENTS.md runtime and exact failure class.
+5. The CLI uses `clx-grok-delegate` read-only mode, reads the model selector and effort from `~/.agents/models.toml`, reuses one empty non-Git repository, disables tools/memory/subagents/updates, and preserves the shared AGENTS.md runtime and exact failure class.

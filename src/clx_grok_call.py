@@ -24,6 +24,9 @@ GRACE = 0.5
 COMMANDS = frozenset({"models", "doctor"})
 _active_pgid: int | None = None
 MODEL_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/+:@-]*")
+EFFORT_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+EFFORTS = frozenset({"low", "medium", "high", "xhigh"})
+CLI_DEFAULT = "cli-default"
 
 
 def package_version() -> str:
@@ -61,6 +64,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "-m", "--model",
         help="모델 (기본: ~/.agents/models.toml의 roles.grok_exec.model)",
+    )
+    p.add_argument(
+        "--effort", "--reasoning-effort",
+        dest="effort",
+        help="추론 강도 (기본: ~/.agents/models.toml의 roles.grok_exec.effort)",
     )
     p.add_argument(
         "-t", "--timeout", type=_timeout_type, default=DEFAULT_TIMEOUT,
@@ -161,11 +169,15 @@ def classify_failure(message: str) -> str:
     return "upstream_error"
 
 
-def resolve_model(explicit: str | None, env: Mapping[str, str]) -> str:
-    if explicit is not None:
-        if not MODEL_ID.fullmatch(explicit):
-            raise ValueError("model registry override is invalid")
-        return explicit
+def resolve_role(
+    explicit_model: str | None,
+    explicit_effort: str | None,
+    env: Mapping[str, str],
+) -> tuple[str, str]:
+    if explicit_model is not None and not MODEL_ID.fullmatch(explicit_model):
+        raise ValueError("model registry override is invalid")
+    if explicit_effort is not None and explicit_effort not in EFFORTS:
+        raise ValueError("effort registry override is invalid")
     home = env.get("CLX_OWNER_HOME") or env.get("HOME")
     if not home:
         raise ValueError("model registry HOME is unavailable")
@@ -175,7 +187,7 @@ def resolve_model(explicit: str | None, env: Mapping[str, str]) -> str:
     except OSError as exc:
         raise ValueError(f"model registry is unavailable: {exc}") from None
     section = ""
-    found: list[str] = []
+    found: dict[str, list[str]] = {"model": [], "effort": []}
     for raw in lines:
         line = raw.split("#", 1)[0].strip()
         if not line:
@@ -184,15 +196,22 @@ def resolve_model(explicit: str | None, env: Mapping[str, str]) -> str:
         if section_match:
             section = section_match.group(1).strip()
             continue
-        if section != "roles.grok_exec" or not line.startswith("model"):
+        if section != "roles.grok_exec":
             continue
-        model_match = re.fullmatch(r'model\s*=\s*"([^"\\]+)"', line)
-        if not model_match or not MODEL_ID.fullmatch(model_match.group(1)):
-            raise ValueError("model registry grok_exec entry is invalid")
-        found.append(model_match.group(1))
-    if len(found) != 1:
+        for key, shape in (("model", MODEL_ID), ("effort", EFFORT_ID)):
+            if not re.match(rf"{key}\s*=", line):
+                continue
+            match = re.fullmatch(rf'{key}\s*=\s*"([^"\\]+)"', line)
+            if not match or not shape.fullmatch(match.group(1)):
+                raise ValueError(f"model registry grok_exec {key} entry is invalid")
+            found[key].append(match.group(1))
+    if any(len(values) != 1 for values in found.values()):
         raise ValueError("model registry grok_exec entry is missing or duplicated")
-    return found[0]
+    model = explicit_model or found["model"][0]
+    effort = explicit_effort or found["effort"][0]
+    if effort not in EFFORTS:
+        raise ValueError("model registry grok_exec effort entry is invalid")
+    return model, effort
 
 
 def stable_repo(env: Mapping[str, str]) -> Path:
@@ -428,6 +447,7 @@ def cmd_call(
     prompt: str,
     *,
     model: str | None,
+    effort: str | None,
     timeout: int,
     as_json: bool,
     env: Mapping[str, str] | None = None,
@@ -437,7 +457,7 @@ def cmd_call(
         return _not_found("call", model, as_json)
     effective_env = env if env is not None else os.environ
     try:
-        model = resolve_model(model, effective_env)
+        model, effort = resolve_role(model, effort, effective_env)
         probe = subprocess.run(
             ["git", "-C", os.getcwd(), "rev-parse", "--show-toplevel"],
             capture_output=True,
@@ -455,11 +475,13 @@ def cmd_call(
             timeout_msg="호출이 시간 초과되었습니다",
         )
     argv = [
-        path, repo, "-p", prompt, "-m", model,
+        path, repo, "-p", prompt,
         "--output-format", "plain", "--always-approve", "--check",
         "--disable-web-search", "--no-memory", "--no-subagents", "--tools", "",
-        "--no-auto-update", "--max-turns", "1",
+        "--no-auto-update", "--max-turns", "1", "--reasoning-effort", effort,
     ]
+    if model != CLI_DEFAULT:
+        argv[4:4] = ["-m", model]
     code, out, err, timed_out, ms = run_grok(argv, timeout=float(timeout), env=env)
     return _finish(
         command="call", model=model, code=code, out=out, err=err,
@@ -480,7 +502,9 @@ def main(argv: list[str] | None = None) -> int:
             return emit_result(usage_result("잘못된 인자입니다"), as_json=True)
         return code
 
-    tokens, as_json, model, timeout = list(args.tokens), bool(args.json), args.model, args.timeout
+    tokens, as_json, model, effort, timeout = (
+        list(args.tokens), bool(args.json), args.model, args.effort, args.timeout
+    )
     try:
         if tokens and tokens[0] in COMMANDS and len(tokens) == 1:
             if tokens[0] == "doctor":
@@ -499,7 +523,9 @@ def main(argv: list[str] | None = None) -> int:
                 sys.stderr.write(msg + "\n")
                 return EXIT_USAGE
 
-        return cmd_call(prompt, model=model, timeout=timeout, as_json=as_json)
+        return cmd_call(
+            prompt, model=model, effort=effort, timeout=timeout, as_json=as_json
+        )
     except BrokenPipeError:
         return EXIT_PIPE
     except KeyboardInterrupt:
